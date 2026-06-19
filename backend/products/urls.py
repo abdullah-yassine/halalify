@@ -1,3 +1,7 @@
 from django.urls import path
 
-urlpatterns = []
+from products.views import ProductLookupView
+
+urlpatterns = [
+    path("products/<str:barcode>/", ProductLookupView.as_view(), name="product-lookup"),
+]

@@ -84,6 +84,9 @@ DATABASES["default"]["CONN_MAX_AGE"] = 60
 # ---------------------------------------------------------------------------
 AUTH_USER_MODEL = "accounts.User"
 
+# Apple Sign In — bundle ID must match the `aud` claim in the identity token.
+APPLE_APP_BUNDLE_ID = env("APPLE_APP_BUNDLE_ID", default="")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -91,14 +94,30 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Global fallback throttles for any endpoint that doesn't declare its own.
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
+        # Global fallbacks (used by endpoints without explicit throttle_classes)
         "anon": "60/minute",
         "user": "300/minute",
+        # Per-endpoint scoped rates (used by custom throttle classes in config/throttles.py)
+        # product_lookup_anon: tight — barcode enumeration / dataset scraping risk
+        "product_lookup_anon": "20/minute",
+        # product_lookup_user: more generous — authenticated users are accountable
+        "product_lookup_user": "100/minute",
+        # scan_create: write endpoint — protects against scan-spam DB abuse
+        "scan_create": "30/minute",
+        "scan_history": "60/minute",
+        # apple_auth: strictest — auth endpoints are the primary brute-force target
+        "apple_auth": "5/minute",
     },
+    # Ensures no internal error detail (stack traces, SQL, paths) ever reaches clients.
+    "EXCEPTION_HANDLER": "config.exceptions.handle_exception",
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
 }
 
 SIMPLE_JWT = {

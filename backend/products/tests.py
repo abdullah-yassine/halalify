@@ -1,5 +1,11 @@
-from django.test import TestCase
+import json
 
+from django.conf import settings as django_settings
+from django.core.cache import cache
+from django.test import TestCase
+from rest_framework.test import APIClient
+
+from accounts.models import User
 from products.classifier import (
     ClassificationResult,
     TriggeredIngredient,
@@ -7,7 +13,12 @@ from products.classifier import (
     classify,
     parse_ingredients,
 )
-from products.models import Certification, Ingredient
+from products.models import Certification, Ingredient, Product
+
+
+# =============================================================================
+# Classifier unit tests
+# =============================================================================
 
 
 class IngredientParserTest(TestCase):
@@ -86,10 +97,6 @@ class ClassifierTest(TestCase):
             reason="Mineral — halal.",
         )
 
-    # ------------------------------------------------------------------
-    # 1. Clear HARAM ingredient
-    # ------------------------------------------------------------------
-
     def test_haram_ingredient_returns_haram(self):
         result = classify("Water, Sugar, Pork Gelatin")
         self.assertEqual(result.verdict, Verdict.HARAM)
@@ -98,13 +105,10 @@ class ClassifierTest(TestCase):
         self.assertIn("pig", result.triggers[0].reason.lower())
 
     def test_haram_matched_via_alias(self):
-        # "Gelatin (Pork)" should match the "Pork Gelatin" ingredient via alias.
         result = classify("Water, Sugar, Gelatin (Pork)")
         self.assertEqual(result.verdict, Verdict.HARAM)
 
     def test_haram_short_circuits_on_first_match(self):
-        # Doubtful ingredients before and after the haram one shouldn't appear
-        # in triggers — we short-circuit immediately.
         result = classify("Natural Flavors, Pork Gelatin, Gelatin")
         self.assertEqual(result.verdict, Verdict.HARAM)
         self.assertEqual(len(result.triggers), 1)
@@ -112,10 +116,6 @@ class ClassifierTest(TestCase):
     def test_haram_case_insensitive(self):
         result = classify("WATER, SUGAR, PORK GELATIN")
         self.assertEqual(result.verdict, Verdict.HARAM)
-
-    # ------------------------------------------------------------------
-    # 2. DOUBTFUL ingredient, no certification
-    # ------------------------------------------------------------------
 
     def test_doubtful_ingredient_no_cert_returns_doubtful(self):
         result = classify("Water, Sugar, Gelatin")
@@ -140,10 +140,6 @@ class ClassifierTest(TestCase):
         result = classify("Gelatin, Gelatin, Gelatin")
         self.assertEqual(result.verdict, Verdict.DOUBTFUL)
         self.assertEqual(len(result.triggers), 1)
-
-    # ------------------------------------------------------------------
-    # 3. DOUBTFUL ingredient + active certification → HALAL
-    # ------------------------------------------------------------------
 
     def test_active_cert_overrides_doubtful(self):
         Certification.objects.create(
@@ -183,10 +179,6 @@ class ClassifierTest(TestCase):
         result = classify("Water, Gelatin", brand="ThisBrand")
         self.assertEqual(result.verdict, Verdict.DOUBTFUL)
 
-    # ------------------------------------------------------------------
-    # 4. Certification does NOT override HARAM (critical safety check)
-    # ------------------------------------------------------------------
-
     def test_certification_never_overrides_haram(self):
         Certification.objects.create(
             brand="CertifiedBrand",
@@ -195,10 +187,6 @@ class ClassifierTest(TestCase):
         )
         result = classify("Water, Pork Gelatin", brand="CertifiedBrand")
         self.assertEqual(result.verdict, Verdict.HARAM)
-
-    # ------------------------------------------------------------------
-    # 5. All recognised halal ingredients → HALAL
-    # ------------------------------------------------------------------
 
     def test_all_halal_ingredients_returns_halal(self):
         result = classify("Water, Sugar, Salt")
@@ -209,10 +197,6 @@ class ClassifierTest(TestCase):
     def test_empty_ingredient_text_returns_halal(self):
         result = classify("")
         self.assertEqual(result.verdict, Verdict.HALAL)
-
-    # ------------------------------------------------------------------
-    # 6. Unrecognised ingredient → DOUBTFUL (safe failure mode)
-    # ------------------------------------------------------------------
 
     def test_unrecognised_ingredient_returns_doubtful(self):
         result = classify("Water, Sugar, Xanthoflavorex-9000")
@@ -237,9 +221,6 @@ class ClassifierTest(TestCase):
         self.assertIn("MysteryIngredient-X", names)
 
     def test_unrecognised_not_overridden_by_cert(self):
-        # A certified brand with an unrecognised ingredient: cert wins over
-        # unrecognised (same logic as it wins over Doubtful — cert resolves all
-        # non-haram ambiguity).
         Certification.objects.create(
             brand="CertBrand2",
             certifying_body=Certification.CertifyingBody.JAKIM,
@@ -247,10 +228,6 @@ class ClassifierTest(TestCase):
         )
         result = classify("Water, MysteryIngredient-X", brand="CertBrand2")
         self.assertEqual(result.verdict, Verdict.HALAL)
-
-    # ------------------------------------------------------------------
-    # 7. Result structure correctness
-    # ------------------------------------------------------------------
 
     def test_halal_result_has_empty_triggers(self):
         result = classify("Water, Sugar")
@@ -263,7 +240,114 @@ class ClassifierTest(TestCase):
         self.assertTrue(result.triggers[0].matched)
 
     def test_no_brand_supplied_no_cert_lookup(self):
-        # brand='' should skip DB lookup and go straight to verdict.
         result = classify("Water, Gelatin", brand="")
         self.assertEqual(result.verdict, Verdict.DOUBTFUL)
         self.assertIsNone(result.certifying_body)
+
+
+# =============================================================================
+# Product API integration tests
+# =============================================================================
+
+
+class ProductLookupAPITest(TestCase):
+    """Integration tests for GET /api/products/{barcode}/"""
+
+    def setUp(self):
+        self.client = APIClient()
+        # Halal ingredients for the test product
+        Ingredient.objects.create(
+            name="API-Water", aliases=["water"],
+            category=Ingredient.Category.HALAL, reason="Halal.",
+        )
+        Ingredient.objects.create(
+            name="API-Sugar", aliases=["sugar"],
+            category=Ingredient.Category.HALAL, reason="Halal.",
+        )
+        self.product = Product.objects.create(
+            barcode="012345678905",
+            name="Clean Test Product",
+            brand="SafeBrand",
+            ingredients_text="Water, Sugar",
+        )
+        self.haram_product = Product.objects.create(
+            barcode="012345678912",
+            name="Haram Test Product",
+            brand="HaramBrand",
+            ingredients_text="Water, Lard",
+        )
+
+    def test_valid_barcode_returns_200_with_verdict(self):
+        response = self.client.get("/api/products/012345678905/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("verdict", response.data)
+        self.assertIn("barcode", response.data)
+        self.assertIn("triggers", response.data)
+
+    def test_verdict_correct_for_halal_product(self):
+        response = self.client.get("/api/products/012345678905/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["verdict"], "halal")
+
+    def test_verdict_correct_for_haram_product(self):
+        response = self.client.get("/api/products/012345678912/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["verdict"], "haram")
+        self.assertEqual(len(response.data["triggers"]), 1)
+        self.assertEqual(response.data["triggers"][0]["name"], "Lard")
+
+    # ---- Input validation: barcode format ----
+
+    def test_letters_in_barcode_returns_400(self):
+        response = self.client.get("/api/products/ABCDEF123456/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_barcode_too_short_returns_400(self):
+        response = self.client.get("/api/products/123/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_barcode_too_long_returns_400(self):
+        response = self.client.get("/api/products/123456789012345/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_barcode_with_special_chars_returns_400(self):
+        response = self.client.get("/api/products/0123-5678-9012/")
+        self.assertEqual(response.status_code, 400)
+
+    def test_400_response_contains_no_internal_details(self):
+        response = self.client.get("/api/products/INVALID/")
+        self.assertEqual(response.status_code, 400)
+        body = response.content.decode()
+        self.assertNotIn("Traceback", body)
+        self.assertNotIn("DoesNotExist", body)
+        self.assertNotIn("models.py", body)
+        self.assertNotIn("settings", body)
+
+    def test_missing_product_returns_404(self):
+        response = self.client.get("/api/products/999999999999/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_response_is_generic(self):
+        response = self.client.get("/api/products/999999999999/")
+        body = response.content.decode()
+        self.assertNotIn("DoesNotExist", body)
+        self.assertNotIn("Traceback", body)
+        self.assertNotIn("models.py", body)
+        self.assertEqual(response.data["error"], "Product not found.")
+
+    # ---- Throttle enforcement ----
+
+    def test_product_lookup_throttle_returns_429_for_anon(self):
+        # Override to a very low rate to confirm 429 is actually returned.
+        base = dict(django_settings.REST_FRAMEWORK)
+        base["DEFAULT_THROTTLE_RATES"] = {
+            **base["DEFAULT_THROTTLE_RATES"],
+            "product_lookup_anon": "3/minute",
+        }
+        cache.clear()
+        with self.settings(REST_FRAMEWORK=base):
+            cache.clear()
+            for _ in range(3):
+                self.client.get("/api/products/012345678905/")
+            response = self.client.get("/api/products/012345678905/")
+        self.assertEqual(response.status_code, 429)
