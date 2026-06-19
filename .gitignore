@@ -1,0 +1,163 @@
+# =============================================================================
+# Halalify — .gitignore
+# Stack: Swift/SwiftUI (iOS) + Django/Python (backend) + PostgreSQL + Railway
+# =============================================================================
+
+# =============================================================================
+# SECRETS — never commit these
+# =============================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+AuthKey_*.p8
+secrets.json
+apple_auth_key.p8
+
+# =============================================================================
+# Python / Django
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env.bak
+
+# Django specifics
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+static_root/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# =============================================================================
+# Xcode / Swift / iOS
+# =============================================================================
+# Build output
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode user state (per-developer, not shared)
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Xcode Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# CocoaPods (if used — project uses SPM but guarding anyway)
+Pods/
+*.xcworkspace
+!default.xcworkspace
+Podfile.lock
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/configuration/registries.json
+*.resolved
+# Keep Package.resolved if you want reproducible builds (team choice):
+# !Package.resolved
+
+# Fastlane (if ever added)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# =============================================================================
+# macOS system files
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+Thumbs.db
+ehthumbs.db
+
+# =============================================================================
+# Editors & IDEs
+# =============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+
+# =============================================================================
+# Open Food Facts data dumps (can be multi-GB, never commit raw data)
+# =============================================================================
+data/
+*.json.gz
+*.csv.gz
+off_dump/
+off_import/
+*.jsonl
+
+# =============================================================================
+# Docker (if used locally for dev)
+# =============================================================================
+docker-compose.override.yml
+
+# =============================================================================
+# Railway / deployment
+# =============================================================================
+.railway/
+
+# =============================================================================
+# Misc
+# =============================================================================
+*.bak
+*.tmp
+*.orig
+.cache/
