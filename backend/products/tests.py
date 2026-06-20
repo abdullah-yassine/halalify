@@ -194,9 +194,12 @@ class ClassifierTest(TestCase):
         self.assertEqual(result.triggers, [])
         self.assertIsNone(result.certifying_body)
 
-    def test_empty_ingredient_text_returns_halal(self):
+    def test_empty_ingredient_text_returns_doubtful(self):
         result = classify("")
-        self.assertEqual(result.verdict, Verdict.HALAL)
+        self.assertEqual(result.verdict, Verdict.DOUBTFUL)
+        self.assertEqual(len(result.triggers), 1)
+        self.assertFalse(result.triggers[0].matched)
+        self.assertIn("not available", result.triggers[0].reason)
 
     def test_unrecognised_ingredient_returns_doubtful(self):
         result = classify("Water, Sugar, Xanthoflavorex-9000")

@@ -192,6 +192,24 @@ def classify(ingredients_text: str, brand: str = "") -> ClassificationResult:
     """
     tokens = parse_ingredients(ingredients_text)
 
+    # No tokens means no ingredient data at all (empty string, whitespace, or
+    # a label-only string like "INGREDIENTS:"). Per CLAUDE.md §3 the safe
+    # failure mode is DOUBTFUL — never assume Halal due to missing data.
+    if not tokens:
+        return ClassificationResult(
+            verdict=Verdict.DOUBTFUL,
+            triggers=[
+                TriggeredIngredient(
+                    name="No ingredient data",
+                    reason=(
+                        "Ingredient information is not available for this product. "
+                        "Please verify independently with the manufacturer or a certifying body."
+                    ),
+                    matched=False,
+                )
+            ],
+        )
+
     # Load all ingredients once — table is small enough to fit in memory.
     all_ingredients = list(Ingredient.objects.all())
 
